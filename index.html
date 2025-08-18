@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>每日计划与总结</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- 侧边栏导航 -->
+        <div id="sidebar" class="sidebar">
+            <div class="sidebar-header">
+                <h3>📁 历史记录</h3>
+                <button id="sidebar-toggle" class="sidebar-toggle" onclick="toggleSidebar()">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </button>
+            </div>
+            <div class="sidebar-content">
+                <div class="tree-view" id="record-tree">
+                    <div class="tree-loading">
+                        <p>暂无历史记录</p>
+                        <small>保存数据后将显示记录结构</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 主内容区域 -->
+        <div class="main-content">
+            <!-- 侧边栏触发按钮 -->
+            <button class="sidebar-trigger" onclick="toggleSidebar()">📁</button>
+            
+            <h1 id="main-title">每日计划与总结</h1>
+        
+        <!-- 设置按钮 -->
+        <div class="settings-trigger">
+            <button id="settings-btn" class="settings-button" onclick="toggleSettings()">
+                ⚙️ 设置
+            </button>
+        </div>
+        
+        <!-- 设置面板 -->
+        <div id="settings-panel" class="settings-panel">
+            <div class="settings-header">
+                <h3>⚙️ 系统设置</h3>
+                <button class="close-btn" onclick="toggleSettings()">✕</button>
+            </div>
+            <div class="settings-content">
+                <div class="setting-group">
+                    <label for="save-directory">📁 JSON保存路径:</label>
+                    <div class="path-input-group">
+                        <input type="text" id="save-directory" placeholder="例如: /Users/username/Documents/DailyRecords">
+                        <button onclick="selectDirectory()" class="browse-btn">浏览</button>
+                    </div>
+                    <small class="help-text">设置JSON文件的默认保存位置（浏览器下载目录的相对路径）</small>
+                </div>
+                
+                <div class="setting-group">
+                    <label for="auto-save">🔄 自动保存:</label>
+                    <label class="switch">
+                        <input type="checkbox" id="auto-save" checked>
+                        <span class="slider"></span>
+                    </label>
+                    <small class="help-text">启用后会自动保存您的输入内容</small>
+                </div>
+                
+                <div class="setting-group">
+                    <label for="file-naming">📝 文件命名格式:</label>
+                    <select id="file-naming">
+                        <option value="每日记录_{date}">每日记录_日期</option>
+                        <option value="daily_record_{date}">daily_record_日期</option>
+                        <option value="{date}_记录">{日期}_记录</option>
+                        <option value="custom">自定义</option>
+                    </select>
+                    <input type="text" id="custom-naming" placeholder="自定义格式，使用{date}代表日期" style="display:none;">
+                    <small class="help-text">选择保存文件的命名方式</small>
+                </div>
+                
+                <div class="settings-actions">
+                    <button onclick="saveSettings()" class="btn btn-success">💾 保存设置</button>
+                    <button onclick="resetSettings()" class="btn btn-secondary">🔄 重置默认</button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 设置遮罩层 -->
+        <div id="settings-overlay" class="settings-overlay" onclick="toggleSettings()"></div>
+        
+        <!-- 标签页导航 -->
+        <div class="tabs">
+            <button class="tab-button active" onclick="openTab(event, 'plan-tab')">👉今日计划</button>
+            <button class="tab-button" onclick="openTab(event, 'summary-tab')">👉今日总结反思</button>
+        </div>
+
+        <!-- 今日计划标签页 -->
+        <div id="plan-tab" class="tab-content active">
+            <!-- 添加计划表单 -->
+            <div class="form-section">
+                <h2>添加新计划</h2>
+                <form id="plan-form" class="plan-form">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="event">计划事件:</label>
+                            <input type="text" id="event" name="event" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="importance">重要等级:</label>
+                            <select id="importance" name="importance">
+                                <option value="十分重要">十分重要</option>
+                                <option value="重要" selected>重要</option>
+                                <option value="一般重要">一般重要</option>
+                                <option value="不重要">不重要</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="urgency">紧急程度:</label>
+                            <select id="urgency" name="urgency">
+                                <option value="十分紧急">十分紧急</option>
+                                <option value="紧急" selected>紧急</option>
+                                <option value="不紧急">不紧急</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="start_time">开始时间:</label>
+                            <input type="time" id="start_time" name="start_time" value="07:00">
+                        </div>
+                        <div class="form-group">
+                            <label for="duration">计划时长:</label>
+                            <input type="text" id="duration" name="duration" value="1小时">
+                        </div>
+                        <div class="form-group">
+                            <button type="submit" class="btn btn-primary">添加计划</button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+
+            <!-- 计划列表 -->
+            <div class="table-section">
+                <h2>今日计划列表</h2>
+                <div class="table-container">
+                    <table id="plans-table">
+                        <thead>
+                            <tr>
+                                <th>计划事件</th>
+                                <th>重要等级</th>
+                                <th>紧急程度</th>
+                                <th>开始时间</th>
+                                <th>计划时长</th>
+                                <th>完成状态</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="plans-tbody">
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- 今日总结标签页 -->
+        <div id="summary-tab" class="tab-content">
+            <!-- 计划完成情况 -->
+            <div class="summary-section">
+                <h2>计划完成情况</h2>
+                <div class="completion-stats" id="completion-stats">
+                    <!-- 统计信息将由JavaScript动态生成 -->
+                </div>
+                <div class="table-container">
+                    <table id="completion-table">
+                        <thead>
+                            <tr>
+                                <th>已完成</th>
+                                <th>未完成</th>
+                                <th>未完成原因</th>
+                                <th>需要调整</th>
+                            </tr>
+                        </thead>
+                        <tbody id="completion-tbody">
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- 感悟反思 -->
+            <div class="reflection-section">
+                <h2>感悟反思</h2>
+                
+                <div class="reflection-group">
+                    <h3>👉 相比昨天的进步之处:</h3>
+                    <div class="input-group" id="progress-group">
+                        <div class="input-row">
+                            <input type="text" class="progress-input" placeholder="输入进步之处..." data-index="0">
+                            <div class="row-controls">
+                                <button type="button" class="btn btn-sm btn-success" onclick="addInputRow('progress')">+</button>
+                                <button type="button" class="btn btn-sm btn-danger" onclick="removeInputRow(this, 'progress')">-</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="reflection-group">
+                    <h3>😊 那些事还可以做的更好:</h3>
+                    <div class="input-group" id="improvement-group">
+                        <div class="input-row">
+                            <input type="text" class="improvement-input" placeholder="输入改进点..." data-index="0">
+                            <div class="row-controls">
+                                <button type="button" class="btn btn-sm btn-success" onclick="addInputRow('improvement')">+</button>
+                                <button type="button" class="btn btn-sm btn-danger" onclick="removeInputRow(this, 'improvement')">-</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="reflection-group">
+                    <h3>❤️ 最感动/感恩的三个瞬间:</h3>
+                    <div class="input-group" id="gratitude-group">
+                        <div class="input-row">
+                            <input type="text" class="gratitude-input" placeholder="感动/感恩的瞬间..." data-index="0">
+                            <div class="row-controls">
+                                <button type="button" class="btn btn-sm btn-success" onclick="addInputRow('gratitude')">+</button>
+                                <button type="button" class="btn btn-sm btn-danger" onclick="removeInputRow(this, 'gratitude')">-</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="reflection-group">
+                    <h3>☕️ 每日思考:</h3>
+                    <div class="markdown-editor">
+                        <div class="editor-tabs">
+                            <button type="button" class="editor-tab active" onclick="switchEditorTab('edit')">编辑</button>
+                            <button type="button" class="editor-tab" onclick="switchEditorTab('preview')">预览</button>
+                        </div>
+                        <div class="editor-content">
+                            <textarea id="daily-thoughts" class="markdown-textarea" placeholder="在这里记录您的每日思考... 支持Markdown语法"></textarea>
+                            <div id="markdown-preview" class="markdown-preview" style="display: none;"></div>
+                        </div>
+                        <div class="markdown-help">
+                            <small>支持Markdown语法：**粗体** *斜体* `代码` > 引用 - 列表</small>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+        
+        <!-- 统一的操作按钮 -->
+        <div class="unified-actions">
+            <div class="button-group">
+                <button onclick="saveAllData()" class="btn btn-success">💾 保存数据</button>
+                <button onclick="exportToPDF()" class="btn btn-info">📄 导出PDF</button>
+                <button onclick="clearAllData()" class="btn btn-danger">🗑️ 清空记录</button>
+            </div>
+        </div>
+        
+        </div> <!-- 结束 main-content -->
+    </div> <!-- 结束 container -->
+
+    <script src="script.js"></script>
+</body>
+</html>
