@@ -161,7 +161,7 @@ class DailyPlanner {
             event: formData.get('event'),
             importance: formData.get('importance'),
             urgency: formData.get('urgency'),
-            start_time: formData.get('start_time'),
+            startTime: formData.get('start_time'), // 修复字段名不一致
             duration: formData.get('duration'),
             completed: false,
             timestamp: new Date().toISOString()
@@ -193,7 +193,7 @@ class DailyPlanner {
                 <td>${plan.event}</td>
                 <td><span class="badge badge-${this.getImportanceBadgeClass(plan.importance)}">${plan.importance}</span></td>
                 <td><span class="badge badge-${this.getUrgencyBadgeClass(plan.urgency)}">${plan.urgency}</span></td>
-                <td>${plan.start_time}</td>
+                <td>${plan.startTime || plan.start_time || '未设置'}</td>
                 <td>${plan.duration}</td>
                 <td class="${statusClass}">${statusText}</td>
                 <td>
@@ -324,6 +324,15 @@ class DailyPlanner {
             try {
                 const parsed = JSON.parse(data);
                 this.plans = parsed.plans || [];
+                
+                // 数据迁移：确保所有计划都有正确的字段名
+                this.plans = this.plans.map(plan => {
+                    if (plan.start_time && !plan.startTime) {
+                        plan.startTime = plan.start_time;
+                        delete plan.start_time; // 删除旧字段
+                    }
+                    return plan;
+                });
             } catch (e) {
                 console.error('加载数据失败:', e);
                 this.plans = [];
@@ -674,7 +683,7 @@ class DailyPlanner {
                     <td>${plan.event}</td>
                     <td>${plan.importance}</td>
                     <td>${plan.urgency}</td>
-                    <td>${plan.startTime}</td>
+                    <td>${plan.startTime || plan.start_time || '未设置'}</td>
                     <td>${plan.duration}</td>
                     <td>${plan.completed ? '✅ 已完成' : '❌ 未完成'}</td>
                 </tr>
@@ -1527,8 +1536,17 @@ function loadRecordFromData(date, record, source = 'local', filePath = null) {
         
         // 确认是否要加载历史记录
         if (confirm(`🔄 确定要加载以下记录吗？\n\n📅 ${displayDate}\n📊 来源: ${sourceText}${pathText}\n📋 计划: ${record.plans?.length || 0} 项\n✅ 完成: ${record.statistics?.completedPlans || 0} 项\n\n⚠️ 当前未保存的内容将会丢失。`)) {
+            // 数据迁移：确保所有计划都有正确的字段名
+            const migratedPlans = (record.plans || []).map(plan => {
+                if (plan.start_time && !plan.startTime) {
+                    plan.startTime = plan.start_time;
+                    delete plan.start_time; // 删除旧字段
+                }
+                return plan;
+            });
+            
             // 加载计划数据
-            planner.plans = record.plans || [];
+            planner.plans = migratedPlans;
             planner.updatePlanTable();
             
             // 加载反思数据
