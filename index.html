@@ -79,9 +79,56 @@
                     <small class="help-text">选择保存文件的命名方式</small>
                 </div>
                 
+                <!-- AI功能配置 -->
+                <div class="setting-group">
+                    <h4>🤖 AI智能助手设置</h4>
+                    
+                    <label for="ai-enabled">🔄 启用AI功能:</label>
+                    <label class="switch">
+                        <input type="checkbox" id="ai-enabled">
+                        <span class="slider"></span>
+                    </label>
+                    <small class="help-text">启用后可使用AI每周洞察功能</small>
+                </div>
+                
+                <div class="setting-group">
+                    <label for="openrouter-api-key">🔑 OpenRouter API密钥:</label>
+                    <div class="api-input-group">
+                        <input type="password" id="openrouter-api-key" placeholder="sk-or-v1-xxxxxxxxxxxxxxxx">
+                        <button type="button" onclick="toggleApiKeyVisibility()" class="toggle-btn">👁️</button>
+                    </div>
+                    <small class="help-text">
+                        获取API密钥: <a href="https://openrouter.ai/" target="_blank">openrouter.ai</a>
+                        | 注册后在控制台获取免费API密钥
+                    </small>
+                </div>
+                
+                <div class="setting-group">
+                    <label for="openrouter-base-url">🌐 API服务地址:</label>
+                    <input type="text" id="openrouter-base-url" placeholder="https://openrouter.ai/api/v1">
+                    <small class="help-text">通常无需修改，除非使用其他兼容服务</small>
+                </div>
+                
+                <div class="setting-group">
+                    <label for="openrouter-model">🤖 AI模型:</label>
+                    <select id="openrouter-model">
+                        <option value="deepseek/deepseek-r1-0528-qwen3-8b:free">DeepSeek R1 (免费)</option>
+                        <option value="openai/gpt-3.5-turbo">GPT-3.5 Turbo</option>
+                        <option value="openai/gpt-4o-mini">GPT-4o Mini</option>
+                        <option value="anthropic/claude-3-haiku">Claude 3 Haiku</option>
+                        <option value="google/gemini-flash-1.5">Gemini Flash 1.5</option>
+                        <option value="meta-llama/llama-3.1-8b-instruct:free">Llama 3.1 8B (免费)</option>
+                        <option value="microsoft/wizardlm-2-8x22b">WizardLM 2 8x22B</option>
+                        <option value="custom">自定义模型</option>
+                    </select>
+                    <input type="text" id="custom-model" placeholder="输入自定义模型名称" style="display:none; margin-top: 0.5rem;">
+                    <small class="help-text">选择要使用的AI模型，免费模型适合日常使用</small>
+                </div>
+                
                 <div class="settings-actions">
                     <button onclick="saveSettings()" class="btn btn-success">💾 保存设置</button>
                     <button onclick="resetSettings()" class="btn btn-secondary">🔄 重置默认</button>
+                    <button onclick="testAiConnection()" class="btn btn-info">🧪 测试AI连接</button>
                 </div>
             </div>
         </div>

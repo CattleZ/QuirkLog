@@ -24,6 +24,8 @@ class SettingsHandler(http.server.SimpleHTTPRequestHandler):
             self.handle_save_settings()
         elif self.path == '/api/save-daily-record':
             self.handle_save_daily_record()
+        elif self.path == '/api/test-ai-connection':
+            self.handle_test_ai_connection()
         else:
             self.send_error(404, "Not Found")
     
@@ -120,6 +122,94 @@ class SettingsHandler(http.server.SimpleHTTPRequestHandler):
             
             response = {"status": "error", "message": f"保存日记失败: {str(e)}"}
             self.wfile.write(json.dumps(response).encode('utf-8'))
+    
+    def handle_test_ai_connection(self):
+        """处理测试AI连接的请求"""
+        try:
+            # 读取POST数据
+            content_length = int(self.headers['Content-Length'])
+            post_data = self.rfile.read(content_length)
+            
+            # 解析JSON数据
+            test_data = json.loads(post_data.decode('utf-8'))
+            api_key = test_data.get('apiKey', '')
+            base_url = test_data.get('baseUrl', 'https://openrouter.ai/api/v1')
+            model = test_data.get('model', 'deepseek/deepseek-r1-0528-qwen3-8b:free')
+            
+            # 测试AI连接
+            success, message = self.test_openrouter_connection(api_key, base_url, model)
+            
+            # 返回响应
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            
+            if success:
+                response = {"status": "success", "message": message}
+            else:
+                response = {"status": "error", "message": message}
+            
+            self.wfile.write(json.dumps(response).encode('utf-8'))
+            
+        except Exception as e:
+            # 返回错误响应
+            self.send_response(500)
+            self.send_header('Content-type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            
+            response = {"status": "error", "message": f"测试连接失败: {str(e)}"}
+            self.wfile.write(json.dumps(response).encode('utf-8'))
+    
+    def test_openrouter_connection(self, api_key, base_url, model=None):
+        """测试OpenRouter API连接"""
+        try:
+            from openai import OpenAI
+            
+            # 如果没有提供模型，使用默认模型
+            if not model:
+                model = "deepseek/deepseek-r1-0528-qwen3-8b:free"
+            
+            # 创建客户端
+            client = OpenAI(
+                base_url=base_url,
+                api_key=api_key,
+            )
+            
+            # 发送简单的测试请求
+            completion = client.chat.completions.create(
+                extra_headers={
+                    "HTTP-Referer": "https://quirklog.app",
+                    "X-Title": "QuirkLog Daily Planner",
+                },
+                model=model,  # 使用指定的模型
+                messages=[
+                    {
+                        "role": "user",
+                        "content": "Hello! This is a connection test."
+                    }
+                ],
+                max_tokens=10  # 限制token数量，减少费用
+            )
+            
+            if completion.choices and completion.choices[0].message:
+                return True, f"API连接测试成功！使用模型: {model}"
+            else:
+                return False, "API返回了空响应"
+                
+        except ImportError:
+            return False, "未安装openai库，请运行: pip install openai"
+        except Exception as e:
+            error_msg = str(e)
+            if "401" in error_msg or "Unauthorized" in error_msg:
+                return False, "API密钥无效或已过期"
+            elif "404" in error_msg or "Not Found" in error_msg:
+                return False, "API服务地址无效或模型不存在"
+            elif "timeout" in error_msg.lower():
+                return False, "连接超时，请检查网络"
+            else:
+                return False, f"连接失败: {error_msg}"
     
     def handle_get_history_files(self):
         """获取历史文件列表"""
@@ -268,7 +358,7 @@ class SettingsHandler(http.server.SimpleHTTPRequestHandler):
         tree = ET.parse(xml_file)
         root = tree.getroot()
         
-        # 更新设置值
+        # 更新基础设置值
         general = root.find('general')
         if general is not None:
             save_dir = general.find('saveDirectory')
@@ -284,6 +374,37 @@ class SettingsHandler(http.server.SimpleHTTPRequestHandler):
             file_naming = export_section.find('fileNaming')
             if file_naming is not None:
                 file_naming.text = settings_data.get('fileNaming', '每日记录_{date}')
+        
+        # 更新或创建AI设置
+        ai_section = root.find('ai')
+        if ai_section is None:
+            ai_section = ET.SubElement(root, 'ai')
+        
+        # 更新AI enabled设置
+        enabled_elem = ai_section.find('enabled')
+        if enabled_elem is None:
+            enabled_elem = ET.SubElement(ai_section, 'enabled')
+        enabled_elem.text = str(settings_data.get('aiEnabled', False)).lower()
+        
+        # 更新API密钥（仅在提供时保存）
+        api_key = settings_data.get('openrouterApiKey', '')
+        if api_key:  # 只有在提供了API密钥时才保存
+            api_key_elem = ai_section.find('openrouterApiKey')
+            if api_key_elem is None:
+                api_key_elem = ET.SubElement(ai_section, 'openrouterApiKey')
+            api_key_elem.text = api_key
+        
+        # 更新Base URL
+        base_url_elem = ai_section.find('openrouterBaseUrl')
+        if base_url_elem is None:
+            base_url_elem = ET.SubElement(ai_section, 'openrouterBaseUrl')
+        base_url_elem.text = settings_data.get('openrouterBaseUrl', 'https://openrouter.ai/api/v1')
+        
+        # 更新模型
+        model_elem = ai_section.find('openrouterModel')
+        if model_elem is None:
+            model_elem = ET.SubElement(ai_section, 'openrouterModel')
+        model_elem.text = settings_data.get('openrouterModel', 'deepseek/deepseek-r1-0528-qwen3-8b:free')
         
         # 添加更新时间
         last_updated = root.find('lastUpdated')
@@ -307,6 +428,13 @@ class SettingsHandler(http.server.SimpleHTTPRequestHandler):
         ET.SubElement(export_section, "includeStatistics").text = "true"
         ET.SubElement(export_section, "includeTimestamp").text = "true"
         ET.SubElement(export_section, "fileNaming").text = "每日记录_{date}"
+        
+        # 添加AI设置
+        ai_section = ET.SubElement(root, "ai")
+        ET.SubElement(ai_section, "enabled").text = "false"
+        ET.SubElement(ai_section, "openrouterApiKey").text = ""
+        ET.SubElement(ai_section, "openrouterBaseUrl").text = "https://openrouter.ai/api/v1"
+        ET.SubElement(ai_section, "openrouterModel").text = "deepseek/deepseek-r1-0528-qwen3-8b:free"
         
         ui = ET.SubElement(root, "ui")
         ET.SubElement(ui, "theme").text = "light"
@@ -344,6 +472,25 @@ class SettingsHandler(http.server.SimpleHTTPRequestHandler):
                 file_naming = export_section.find('fileNaming')
                 if file_naming is not None:
                     settings['fileNaming'] = file_naming.text
+            
+            # 读取AI设置
+            ai_section = root.find('ai')
+            if ai_section is not None:
+                enabled = ai_section.find('enabled')
+                if enabled is not None:
+                    settings['aiEnabled'] = enabled.text.lower() == 'true'
+                
+                api_key = ai_section.find('openrouterApiKey')
+                if api_key is not None and api_key.text:
+                    settings['openrouterApiKey'] = api_key.text
+                
+                base_url = ai_section.find('openrouterBaseUrl')
+                if base_url is not None and base_url.text:
+                    settings['openrouterBaseUrl'] = base_url.text
+                
+                model = ai_section.find('openrouterModel')
+                if model is not None and model.text:
+                    settings['openrouterModel'] = model.text
             
             return settings
             

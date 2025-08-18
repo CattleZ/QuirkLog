@@ -1,10 +1,12 @@
 # 每日计划与总结应用程序的依赖
 # tkinter 通常随Python标准库安装，不需要额外安装
 
-# 如果需要更好的日期时间处理，可以添加：
-# python-dateutil==2.8.2
+# 定时任务相关依赖
+schedule==1.2.0        # 定时任务调度器
+openai==1.54.3         # OpenAI客户端（兼容OpenRouter）
 
-# 如果需要更好的JSON处理，可以添加：
-# ujson==5.8.0
+# 可选的增强依赖
+# python-dateutil==2.8.2  # 更好的日期时间处理
+# ujson==5.8.0           # 更快的JSON处理
 
-# 目前此应用只使用Python标准库，无需额外依赖
+# 主要使用Python标准库，保持轻量级

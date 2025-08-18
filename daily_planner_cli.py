@@ -18,7 +18,7 @@ class DailyPlannerCLI:
     def display_menu(self):
         today = datetime.now().strftime("%Y年%m月%d日 (%A)")
         print("\n" + "="*50)
-        print(f"📅 {today} 计划与总结")
+        print(f"🌞 {today} 计划与总结")
         print("="*50)
         print("1. 📝 添加新计划")
         print("2. 📋 查看所有计划")

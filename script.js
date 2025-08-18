@@ -658,7 +658,7 @@ class DailyPlanner {
     </style>
 </head>
 <body>
-    <h1>📅 ${dateString} 每日记录</h1>
+    <h1>🌞 ${dateString} 每日记录</h1>
     
     <div class="stats">
         <h3>📊 统计信息</h3>
@@ -1039,7 +1039,12 @@ function updateTitle() {
         weekday: 'long' 
     };
     const dateString = now.toLocaleDateString('zh-CN', options);
-    document.getElementById('main-title').textContent = `📅 ${dateString} 计划与总结`;
+    
+    // 更新页面标题
+    document.getElementById('main-title').textContent = `🌞 ${dateString} 计划与总结`;
+    
+    // 更新浏览器标签页标题
+    document.title = `🌞 ${dateString} - 每日计划与总结`;
 }
 
 // Markdown编辑器功能
@@ -1535,7 +1540,7 @@ function loadRecordFromData(date, record, source = 'local', filePath = null) {
         const pathText = filePath ? `\n📁 路径: ${filePath}` : '';
         
         // 确认是否要加载历史记录
-        if (confirm(`🔄 确定要加载以下记录吗？\n\n📅 ${displayDate}\n📊 来源: ${sourceText}${pathText}\n📋 计划: ${record.plans?.length || 0} 项\n✅ 完成: ${record.statistics?.completedPlans || 0} 项\n\n⚠️ 当前未保存的内容将会丢失。`)) {
+        if (confirm(`🔄 确定要加载以下记录吗？\n\n🌞 ${displayDate}\n📊 来源: ${sourceText}${pathText}\n📋 计划: ${record.plans?.length || 0} 项\n✅ 完成: ${record.statistics?.completedPlans || 0} 项\n\n⚠️ 当前未保存的内容将会丢失。`)) {
             // 数据迁移：确保所有计划都有正确的字段名
             const migratedPlans = (record.plans || []).map(plan => {
                 if (plan.start_time && !plan.startTime) {
@@ -1573,7 +1578,7 @@ function loadRecordFromData(date, record, source = 'local', filePath = null) {
             
             const successMsg = source === 'server' ? 
                 `📄 已从服务器加载 ${displayDate} 的记录` : 
-                `📅 已加载 ${displayDate} 的记录`;
+                `🌞 已加载 ${displayDate} 的记录`;
             planner.showMessage(successMsg, 'success');
             
             // 可选：关闭侧边栏
@@ -1658,7 +1663,12 @@ let currentSettings = {
     saveDirectory: './downloads',
     autoSave: true,
     fileNaming: '每日记录_{date}',
-    customNaming: ''
+    customNaming: '',
+    // AI功能设置
+    aiEnabled: false,
+    openrouterApiKey: '',
+    openrouterBaseUrl: 'https://openrouter.ai/api/v1',
+    openrouterModel: 'deepseek/deepseek-r1-0528-qwen3-8b:free'
 };
 
 function toggleSettings() {
@@ -1688,6 +1698,19 @@ function setupSettingsEventListeners() {
             customNamingInput.focus();
         } else {
             customNamingInput.style.display = 'none';
+        }
+    });
+    
+    // AI模型选择
+    const modelSelect = document.getElementById('openrouter-model');
+    const customModelInput = document.getElementById('custom-model');
+    
+    modelSelect.addEventListener('change', (e) => {
+        if (e.target.value === 'custom') {
+            customModelInput.style.display = 'block';
+            customModelInput.focus();
+        } else {
+            customModelInput.style.display = 'none';
         }
     });
     
@@ -1729,11 +1752,22 @@ function loadSettingsFromServer() {
                 const autoSave = xmlDoc.querySelector('autoSave')?.textContent === 'true';
                 const fileNaming = xmlDoc.querySelector('fileNaming')?.textContent;
                 
-                if (saveDirectory || fileNaming) {
+                // 读取AI设置
+                const aiEnabled = xmlDoc.querySelector('ai enabled')?.textContent === 'true';
+                const openrouterApiKey = xmlDoc.querySelector('ai openrouterApiKey')?.textContent;
+                const openrouterBaseUrl = xmlDoc.querySelector('ai openrouterBaseUrl')?.textContent;
+                const openrouterModel = xmlDoc.querySelector('ai openrouterModel')?.textContent;
+                
+                if (saveDirectory || fileNaming || aiEnabled !== undefined) {
                     const serverSettings = {
                         saveDirectory: saveDirectory || currentSettings.saveDirectory,
                         autoSave: autoSave !== undefined ? autoSave : currentSettings.autoSave,
-                        fileNaming: fileNaming || currentSettings.fileNaming
+                        fileNaming: fileNaming || currentSettings.fileNaming,
+                        // AI设置
+                        aiEnabled: aiEnabled !== undefined ? aiEnabled : currentSettings.aiEnabled,
+                        openrouterApiKey: openrouterApiKey || currentSettings.openrouterApiKey,
+                        openrouterBaseUrl: openrouterBaseUrl || currentSettings.openrouterBaseUrl,
+                        openrouterModel: openrouterModel || currentSettings.openrouterModel
                     };
                     
                     // 合并服务器设置
@@ -1758,6 +1792,31 @@ function loadSettingsToUI() {
     document.getElementById('auto-save').checked = currentSettings.autoSave !== false;
     document.getElementById('file-naming').value = currentSettings.fileNaming || '每日记录_{date}';
     
+    // 加载AI设置
+    document.getElementById('ai-enabled').checked = currentSettings.aiEnabled || false;
+    document.getElementById('openrouter-api-key').value = currentSettings.openrouterApiKey || '';
+    document.getElementById('openrouter-base-url').value = currentSettings.openrouterBaseUrl || 'https://openrouter.ai/api/v1';
+    document.getElementById('openrouter-model').value = currentSettings.openrouterModel || 'deepseek/deepseek-r1-0528-qwen3-8b:free';
+    
+    // 处理自定义模型
+    const modelSelect = document.getElementById('openrouter-model');
+    const customModelInput = document.getElementById('custom-model');
+    const predefinedModels = [
+        'deepseek/deepseek-r1-0528-qwen3-8b:free',
+        'openai/gpt-3.5-turbo',
+        'openai/gpt-4o-mini',
+        'anthropic/claude-3-haiku',
+        'google/gemini-flash-1.5',
+        'meta-llama/llama-3.1-8b-instruct:free',
+        'microsoft/wizardlm-2-8x22b'
+    ];
+    
+    if (!predefinedModels.includes(currentSettings.openrouterModel)) {
+        modelSelect.value = 'custom';
+        customModelInput.style.display = 'block';
+        customModelInput.value = currentSettings.openrouterModel || '';
+    }
+    
     if (currentSettings.fileNaming === 'custom' || 
         !['每日记录_{date}', 'daily_record_{date}', '{date}_记录'].includes(currentSettings.fileNaming)) {
         document.getElementById('file-naming').value = 'custom';
@@ -1772,9 +1831,35 @@ function saveSettings() {
     const fileNaming = document.getElementById('file-naming').value;
     const customNaming = document.getElementById('custom-naming').value.trim();
     
+    // AI设置
+    const aiEnabled = document.getElementById('ai-enabled').checked;
+    const openrouterApiKey = document.getElementById('openrouter-api-key').value.trim();
+    const openrouterBaseUrl = document.getElementById('openrouter-base-url').value.trim();
+    const openrouterModel = document.getElementById('openrouter-model').value;
+    const customModel = document.getElementById('custom-model').value.trim();
+    
     // 验证保存路径
     if (!saveDirectory) {
         alert('⚠️ 请设置保存路径');
+        return;
+    }
+    
+    // 验证API设置
+    if (aiEnabled && !openrouterApiKey) {
+        alert('⚠️ 启用AI功能时必须提供API密钥');
+        return;
+    }
+    
+    if (aiEnabled && !openrouterBaseUrl) {
+        alert('⚠️ 启用AI功能时必须提供API服务地址');
+        return;
+    }
+    
+    // 确定最终的模型名称
+    const finalModel = openrouterModel === 'custom' ? customModel : openrouterModel;
+    
+    if (aiEnabled && !finalModel) {
+        alert('⚠️ 启用AI功能时必须选择或输入模型名称');
         return;
     }
     
@@ -1784,6 +1869,11 @@ function saveSettings() {
         autoSave: autoSave,
         fileNaming: fileNaming === 'custom' ? customNaming : fileNaming,
         customNaming: customNaming,
+        // AI设置
+        aiEnabled: aiEnabled,
+        openrouterApiKey: openrouterApiKey,
+        openrouterBaseUrl: openrouterBaseUrl,
+        openrouterModel: finalModel,
         updatedAt: new Date().toISOString()
     };
     
@@ -1836,7 +1926,12 @@ function resetSettings() {
         saveDirectory: './downloads',
         autoSave: true,
         fileNaming: '每日记录_{date}',
-        customNaming: ''
+        customNaming: '',
+        // AI默认设置
+        aiEnabled: false,
+        openrouterApiKey: '',
+        openrouterBaseUrl: 'https://openrouter.ai/api/v1',
+        openrouterModel: 'deepseek/deepseek-r1-0528-qwen3-8b:free'
     };
     
     localStorage.setItem('dailyPlannerSettings', JSON.stringify(defaultSettings));
@@ -1844,6 +1939,78 @@ function resetSettings() {
     
     loadSettingsToUI();
     showSettingsMessage('🔄 设置已重置为默认值', 'info');
+}
+
+function toggleApiKeyVisibility() {
+    const apiKeyInput = document.getElementById('openrouter-api-key');
+    const toggleBtn = document.querySelector('.toggle-btn');
+    
+    if (apiKeyInput.type === 'password') {
+        apiKeyInput.type = 'text';
+        toggleBtn.textContent = '🙈';
+        toggleBtn.title = '隐藏API密钥';
+    } else {
+        apiKeyInput.type = 'password';
+        toggleBtn.textContent = '👁️';
+        toggleBtn.title = '显示API密钥';
+    }
+}
+
+function testAiConnection() {
+    const aiEnabled = document.getElementById('ai-enabled').checked;
+    const apiKey = document.getElementById('openrouter-api-key').value.trim();
+    const baseUrl = document.getElementById('openrouter-base-url').value.trim();
+    const modelSelect = document.getElementById('openrouter-model').value;
+    const customModel = document.getElementById('custom-model').value.trim();
+    
+    if (!aiEnabled) {
+        showSettingsMessage('⚠️ 请先启用AI功能', 'warning');
+        return;
+    }
+    
+    if (!apiKey) {
+        showSettingsMessage('⚠️ 请输入API密钥', 'warning');
+        return;
+    }
+    
+    if (!baseUrl) {
+        showSettingsMessage('⚠️ 请输入API服务地址', 'warning');
+        return;
+    }
+    
+    const finalModel = modelSelect === 'custom' ? customModel : modelSelect;
+    if (!finalModel) {
+        showSettingsMessage('⚠️ 请选择或输入模型名称', 'warning');
+        return;
+    }
+    
+    // 显示测试中状态
+    showSettingsMessage('🧪 正在测试AI连接...', 'info');
+    
+    // 发送测试请求到后端
+    fetch('/api/test-ai-connection', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            apiKey: apiKey,
+            baseUrl: baseUrl,
+            model: finalModel
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            showSettingsMessage('✅ AI连接测试成功！', 'success');
+        } else {
+            showSettingsMessage(`❌ AI连接测试失败: ${data.message}`, 'error');
+        }
+    })
+    .catch(error => {
+        console.error('测试AI连接时发生错误:', error);
+        showSettingsMessage('❌ 网络错误，无法测试AI连接', 'error');
+    });
 }
 
 function selectDirectory() {
