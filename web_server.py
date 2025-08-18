@@ -27,6 +27,17 @@ class SettingsHandler(http.server.SimpleHTTPRequestHandler):
         else:
             self.send_error(404, "Not Found")
     
+    def do_GET(self):
+        """处理GET请求"""
+        if self.path == '/api/history-files':
+            self.handle_get_history_files()
+        elif self.path.startswith('/api/load-record/'):
+            date = self.path.split('/')[-1]
+            self.handle_load_record(date)
+        else:
+            # 默认的静态文件处理
+            super().do_GET()
+    
     def handle_save_settings(self):
         """处理保存设置的请求"""
         try:
@@ -109,6 +120,133 @@ class SettingsHandler(http.server.SimpleHTTPRequestHandler):
             
             response = {"status": "error", "message": f"保存日记失败: {str(e)}"}
             self.wfile.write(json.dumps(response).encode('utf-8'))
+    
+    def handle_get_history_files(self):
+        """获取历史文件列表"""
+        try:
+            # 获取当前设置
+            settings = self.load_settings()
+            save_directory = settings.get('saveDirectory', './downloads')
+            file_naming = settings.get('fileNaming', '每日记录_{date}')
+            
+            save_path = Path(save_directory)
+            
+            if not save_path.exists():
+                # 如果目录不存在，返回空列表
+                self.send_json_response({"status": "success", "files": []})
+                return
+            
+            # 扫描目录中的JSON文件
+            json_files = []
+            for file_path in save_path.glob('*.json'):
+                try:
+                    # 从文件名解析日期
+                    file_name = file_path.stem
+                    date = self.extract_date_from_filename(file_name, file_naming)
+                    
+                    if date:
+                        # 获取文件基本信息
+                        stat = file_path.stat()
+                        json_files.append({
+                            'date': date,
+                            'filename': file_path.name,
+                            'path': str(file_path),
+                            'size': stat.st_size,
+                            'modified': stat.st_mtime
+                        })
+                except Exception as e:
+                    print(f"处理文件 {file_path} 时出错: {e}")
+                    continue
+            
+            # 按日期排序
+            json_files.sort(key=lambda x: x['date'], reverse=True)
+            
+            self.send_json_response({
+                "status": "success", 
+                "files": json_files,
+                "saveDirectory": save_directory
+            })
+            
+        except Exception as e:
+            self.send_json_response({
+                "status": "error", 
+                "message": f"获取历史文件失败: {str(e)}"
+            })
+    
+    def handle_load_record(self, date):
+        """加载指定日期的记录"""
+        try:
+            # 获取当前设置
+            settings = self.load_settings()
+            save_directory = settings.get('saveDirectory', './downloads')
+            file_naming = settings.get('fileNaming', '每日记录_{date}')
+            
+            # 构建文件路径
+            file_name = file_naming.replace('{date}', date)
+            file_path = Path(save_directory) / f"{file_name}.json"
+            
+            if not file_path.exists():
+                self.send_json_response({
+                    "status": "error", 
+                    "message": f"文件不存在: {file_path}"
+                })
+                return
+            
+            # 读取文件内容
+            with open(file_path, 'r', encoding='utf-8') as f:
+                record_data = json.load(f)
+            
+            self.send_json_response({
+                "status": "success", 
+                "data": record_data,
+                "filePath": str(file_path)
+            })
+            
+        except Exception as e:
+            self.send_json_response({
+                "status": "error", 
+                "message": f"加载记录失败: {str(e)}"
+            })
+    
+    def extract_date_from_filename(self, filename, naming_pattern):
+        """从文件名中提取日期"""
+        try:
+            # 移除模式中的 {date} 部分，获取前缀和后缀
+            if '{date}' not in naming_pattern:
+                return None
+            
+            prefix, suffix = naming_pattern.split('{date}', 1)
+            
+            # 从文件名中提取日期部分
+            if prefix and not filename.startswith(prefix):
+                return None
+            if suffix and not filename.endswith(suffix):
+                return None
+            
+            # 提取日期字符串
+            start_pos = len(prefix)
+            end_pos = len(filename) - len(suffix) if suffix else len(filename)
+            date_str = filename[start_pos:end_pos]
+            
+            # 验证日期格式 (YYYY-MM-DD)
+            if len(date_str) == 10 and date_str[4] == '-' and date_str[7] == '-':
+                # 尝试解析日期以验证有效性
+                from datetime import datetime
+                datetime.strptime(date_str, '%Y-%m-%d')
+                return date_str
+            
+            return None
+            
+        except Exception:
+            return None
+    
+    def send_json_response(self, data):
+        """发送JSON响应"""
+        self.send_response(200)
+        self.send_header('Content-type', 'application/json')
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.end_headers()
+        self.wfile.write(json.dumps(data, ensure_ascii=False).encode('utf-8'))
     
     def do_OPTIONS(self):
         """处理预检请求"""

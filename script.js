@@ -1173,10 +1173,75 @@ function toggleSidebar() {
 }
 
 function loadRecordTree() {
-    // 从localStorage加载所有历史记录
+    // 从localStorage和服务器文件系统加载所有历史记录
     const allRecords = getAllStoredRecords();
-    recordTree = buildTreeStructure(allRecords);
-    renderRecordTree();
+    
+    // 同时尝试从服务器加载历史文件
+    loadHistoryFromServer().then(serverRecords => {
+        // 合并本地和服务器记录
+        const mergedRecords = mergeRecords(allRecords, serverRecords);
+        recordTree = buildTreeStructure(mergedRecords);
+        renderRecordTree();
+    }).catch(error => {
+        console.log('从服务器加载历史记录失败，使用本地记录:', error);
+        recordTree = buildTreeStructure(allRecords);
+        renderRecordTree();
+    });
+}
+
+function loadHistoryFromServer() {
+    return fetch('/api/history-files')
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                console.log(`📂 发现 ${data.files.length} 个历史文件，保存目录: ${data.saveDirectory}`);
+                
+                // 为服务器文件创建基本记录结构，用于显示在侧边栏
+                return data.files.map(file => ({
+                    date: file.date,
+                    data: {
+                        // 为了在侧边栏显示，创建基本的数据结构
+                        plans: [], // 空数组，实际数据在点击时加载
+                        dateInfo: {
+                            year: parseInt(file.date.split('-')[0]),
+                            month: parseInt(file.date.split('-')[1]),
+                            day: parseInt(file.date.split('-')[2]),
+                            weekdayName: new Date(file.date).toLocaleDateString('zh-CN', { weekday: 'long' })
+                        }
+                    },
+                    source: 'server',
+                    filename: file.filename,
+                    path: file.path,
+                    size: file.size,
+                    modified: new Date(file.modified * 1000),
+                    lazyLoad: true // 标记为延迟加载
+                }));
+            } else {
+                throw new Error(data.message || '获取历史文件失败');
+            }
+        });
+}
+
+function mergeRecords(localRecords, serverRecords) {
+    const merged = new Map();
+    
+    // 添加本地记录
+    localRecords.forEach(record => {
+        merged.set(record.date, {
+            ...record,
+            source: 'local'
+        });
+    });
+    
+    // 添加服务器记录（优先级更高，因为可能更新）
+    serverRecords.forEach(record => {
+        const existing = merged.get(record.date);
+        if (!existing || (existing.source === 'local' && record.modified > new Date(existing.data?.savedAt || 0))) {
+            merged.set(record.date, record);
+        }
+    });
+    
+    return Array.from(merged.values());
 }
 
 function getAllStoredRecords() {
@@ -1250,14 +1315,20 @@ function buildTreeStructure(records) {
         tree[year].months[month].days[day] = {
             date: record.date,
             data: record.data,
-            dateInfo: record.data.dateInfo || {
+            source: record.source || 'local',
+            filename: record.filename || null,
+            path: record.path || null,
+            size: record.size || null,
+            modified: record.modified || null,
+            lazyLoad: record.lazyLoad || false,
+            dateInfo: (record.data && record.data.dateInfo) || {
                 year: year,
                 month: month,
                 day: day,
                 weekdayName: new Date(record.date).toLocaleDateString('zh-CN', { weekday: 'long' })
             },
-            planCount: record.data.plans ? record.data.plans.length : 0,
-            completedCount: record.data.plans ? record.data.plans.filter(p => p.completed).length : 0
+            planCount: (record.data && record.data.plans) ? record.data.plans.length : (record.lazyLoad ? '?' : 0),
+            completedCount: (record.data && record.data.plans) ? record.data.plans.filter(p => p.completed).length : (record.lazyLoad ? '?' : 0)
         };
         
         // 更新计数
@@ -1327,10 +1398,17 @@ function renderRecordTree() {
                 const weekdayName = dayData.dateInfo ? dayData.dateInfo.weekdayName : '';
                 const dayLabel = weekdayName ? `${day}日 (${weekdayName})` : `${day}日`;
                 
+                // 来源图标和提示信息
+                const sourceIcon = dayData.source === 'server' ? '🗄️' : '💾';
+                const sourceText = dayData.source === 'server' ? '服务器文件' : '本地存储';
+                const fileInfo = dayData.filename ? `\n文件: ${dayData.filename}` : '';
+                const sizeInfo = dayData.size ? `\n大小: ${(dayData.size / 1024).toFixed(1)}KB` : '';
+                const tooltipText = `点击加载 ${dayData.date} 的记录\n来源: ${sourceText}${fileInfo}${sizeInfo}\n完成率: ${completionRate}% (${dayData.completedCount}/${dayData.planCount})`;
+                
                 treeHTML += `
                     <div class="tree-node tree-level-3">
-                        <div class="tree-item" onclick="loadRecord('${dayData.date}')" data-date="${dayData.date}" title="点击加载 ${dayData.date} 的记录">
-                            <span class="tree-icon">📅</span>
+                        <div class="tree-item record-item-${dayData.source}" onclick="loadRecord('${dayData.date}')" data-date="${dayData.date}" title="${tooltipText}">
+                            <span class="tree-icon">${sourceIcon}</span>
                             <span class="tree-label">${dayLabel}</span>
                             <span class="tree-count" title="完成率: ${completionRate}% (${dayData.completedCount}/${dayData.planCount})">${dayData.completedCount}/${dayData.planCount}</span>
                         </div>
@@ -1374,14 +1452,66 @@ function toggleTreeNode(element) {
 
 function loadRecord(date) {
     try {
-        const recordData = localStorage.getItem(`daily-record-${date}`);
-        if (!recordData) {
-            planner.showMessage('❌ 记录不存在', 'error');
-            return;
+        // 首先检查记录树中是否有这个日期的信息
+        const dayData = findRecordInTree(date);
+        
+        if (dayData && dayData.source === 'server' && dayData.lazyLoad) {
+            // 这是一个服务器文件，需要从服务器加载
+            loadRecordFromServer(date);
+        } else {
+            // 尝试从localStorage加载
+            let recordData = localStorage.getItem(`daily-record-${date}`);
+            
+            if (recordData) {
+                // 从本地加载
+                loadRecordFromData(date, JSON.parse(recordData), 'local');
+            } else {
+                // 本地没有，尝试从服务器加载
+                loadRecordFromServer(date);
+            }
         }
-        
-        const record = JSON.parse(recordData);
-        
+    } catch (error) {
+        console.error('加载记录时出错:', error);
+        planner.showMessage('❌ 加载记录失败', 'error');
+    }
+}
+
+function findRecordInTree(date) {
+    const [year, month, day] = date.split('-');
+    const yearNum = parseInt(year);
+    const monthNum = parseInt(month);
+    const dayNum = parseInt(day);
+    
+    if (recordTree[yearNum] && 
+        recordTree[yearNum].months[monthNum] && 
+        recordTree[yearNum].months[monthNum].days[dayNum]) {
+        return recordTree[yearNum].months[monthNum].days[dayNum];
+    }
+    
+    return null;
+}
+
+function loadRecordFromServer(date) {
+    // 显示加载提示
+    planner.showMessage('📄 正在从服务器加载记录...', 'info');
+    
+    fetch(`/api/load-record/${date}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                loadRecordFromData(date, data.data, 'server', data.filePath);
+            } else {
+                planner.showMessage(`❌ ${data.message}`, 'error');
+            }
+        })
+        .catch(error => {
+            console.error('从服务器加载记录失败:', error);
+            planner.showMessage('❌ 从服务器加载记录失败', 'error');
+        });
+}
+
+function loadRecordFromData(date, record, source = 'local', filePath = null) {
+    try {
         // 验证记录的完整性，特别是日期信息
         if (!validateRecordIntegrity(record, date)) {
             return;
@@ -1392,8 +1522,11 @@ function loadRecord(date) {
         const displayDate = dateInfo ? 
             `${dateInfo.fullDateString || date}` : date;
         
+        const sourceText = source === 'server' ? '服务器文件' : '本地存储';
+        const pathText = filePath ? `\n📁 路径: ${filePath}` : '';
+        
         // 确认是否要加载历史记录
-        if (confirm(`🔄 确定要加载以下记录吗？\n\n📅 ${displayDate}\n📋 计划: ${record.plans?.length || 0} 项\n✅ 完成: ${record.statistics?.completedPlans || 0} 项\n\n⚠️ 当前未保存的内容将会丢失。`)) {
+        if (confirm(`🔄 确定要加载以下记录吗？\n\n📅 ${displayDate}\n📊 来源: ${sourceText}${pathText}\n📋 计划: ${record.plans?.length || 0} 项\n✅ 完成: ${record.statistics?.completedPlans || 0} 项\n\n⚠️ 当前未保存的内容将会丢失。`)) {
             // 加载计划数据
             planner.plans = record.plans || [];
             planner.updatePlanTable();
@@ -1420,7 +1553,10 @@ function loadRecord(date) {
                 targetItem.classList.add('active');
             }
             
-            planner.showMessage(`📅 已加载 ${displayDate} 的记录`, 'success');
+            const successMsg = source === 'server' ? 
+                `📄 已从服务器加载 ${displayDate} 的记录` : 
+                `📅 已加载 ${displayDate} 的记录`;
+            planner.showMessage(successMsg, 'success');
             
             // 可选：关闭侧边栏
             toggleSidebar();

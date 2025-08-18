@@ -194,6 +194,25 @@ body {
     background: rgba(46, 204, 113, 0.1);
 }
 
+/* 记录来源样式 */
+.record-item-server {
+    border-left: 3px solid #3498db;
+    background: rgba(52, 152, 219, 0.05);
+}
+
+.record-item-server:hover {
+    background: rgba(52, 152, 219, 0.15) !important;
+}
+
+.record-item-local {
+    border-left: 3px solid #e74c3c;
+    background: rgba(231, 76, 60, 0.05);
+}
+
+.record-item-local:hover {
+    background: rgba(231, 76, 60, 0.15) !important;
+}
+
 /* 侧边栏触发按钮 */
 .sidebar-trigger {
     position: fixed;
