@@ -8,6 +8,9 @@ class DailyPlanner {
         this.updatePlanTable();
         this.updateCompletionStats();
         this.loadTodayReflection();
+        
+        // 确保在初始化时加载今天的完成情况数据
+        setTimeout(() => this.loadCompletionData(), 200);
     }
 
     initEventListeners() {
@@ -288,23 +291,101 @@ class DailyPlanner {
         const tbody = document.getElementById('completion-tbody');
         tbody.innerHTML = '';
 
-        const completedPlans = this.plans.filter(p => p.completed);
         const pendingPlans = this.plans.filter(p => !p.completed);
 
-        const maxRows = Math.max(completedPlans.length, pendingPlans.length, 1);
-
-        for (let i = 0; i < maxRows; i++) {
+        if (pendingPlans.length === 0) {
             const row = document.createElement('tr');
-            const completed = completedPlans[i];
-            const pending = pendingPlans[i];
-            
             row.innerHTML = `
-                <td>${completed ? completed.event : ''}</td>
-                <td>${pending ? pending.event : ''}</td>
-                <td>${pending ? '<input type="text" placeholder="输入未完成原因..." class="form-control">' : ''}</td>
-                <td>${pending ? '<input type="text" placeholder="调整策略..." class="form-control">' : ''}</td>
+                <td colspan="3" style="text-align: center; color: #666;">🎉 所有计划都已完成！</td>
             `;
             tbody.appendChild(row);
+            return;
+        }
+
+        pendingPlans.forEach((plan, index) => {
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td>${plan.event}</td>
+                <td><input type="text" placeholder="输入未完成原因..." class="form-control incomplete-reason" data-plan-id="${plan.id}"></td>
+                <td><input type="text" placeholder="调整策略..." class="form-control adjustment-strategy" data-plan-id="${plan.id}"></td>
+            `;
+            tbody.appendChild(row);
+        });
+
+        // 为输入框添加事件监听器以自动保存
+        this.setupCompletionInputListeners();
+        
+        // 加载已保存的完成情况数据
+        setTimeout(() => this.loadCompletionData(), 100);
+    }
+
+    setupCompletionInputListeners() {
+        // 为未完成原因和调整策略输入框添加事件监听器
+        const reasonInputs = document.querySelectorAll('.incomplete-reason');
+        const adjustmentInputs = document.querySelectorAll('.adjustment-strategy');
+        
+        [...reasonInputs, ...adjustmentInputs].forEach(input => {
+            input.addEventListener('blur', () => this.saveCompletionData());
+            input.addEventListener('input', () => {
+                clearTimeout(this.completionSaveTimeout);
+                this.completionSaveTimeout = setTimeout(() => {
+                    this.saveCompletionData();
+                }, 1000);
+            });
+        });
+    }
+
+    saveCompletionData() {
+        const today = new Date().toISOString().split('T')[0];
+        const completionData = {};
+        
+        // 收集未完成原因
+        document.querySelectorAll('.incomplete-reason').forEach(input => {
+            const planId = input.getAttribute('data-plan-id');
+            if (input.value.trim()) {
+                if (!completionData[planId]) completionData[planId] = {};
+                completionData[planId].incompleteReason = input.value.trim();
+            }
+        });
+        
+        // 收集调整策略
+        document.querySelectorAll('.adjustment-strategy').forEach(input => {
+            const planId = input.getAttribute('data-plan-id');
+            if (input.value.trim()) {
+                if (!completionData[planId]) completionData[planId] = {};
+                completionData[planId].adjustmentStrategy = input.value.trim();
+            }
+        });
+        
+        localStorage.setItem(`completion_data_${today}`, JSON.stringify(completionData));
+    }
+
+    loadCompletionData() {
+        const today = new Date().toISOString().split('T')[0];
+        const completionData = localStorage.getItem(`completion_data_${today}`);
+        
+        if (completionData) {
+            try {
+                const data = JSON.parse(completionData);
+                
+                // 加载未完成原因
+                document.querySelectorAll('.incomplete-reason').forEach(input => {
+                    const planId = input.getAttribute('data-plan-id');
+                    if (data[planId] && data[planId].incompleteReason) {
+                        input.value = data[planId].incompleteReason;
+                    }
+                });
+                
+                // 加载调整策略
+                document.querySelectorAll('.adjustment-strategy').forEach(input => {
+                    const planId = input.getAttribute('data-plan-id');
+                    if (data[planId] && data[planId].adjustmentStrategy) {
+                        input.value = data[planId].adjustmentStrategy;
+                    }
+                });
+            } catch (e) {
+                console.error('加载完成情况数据失败:', e);
+            }
         }
     }
 
@@ -427,6 +508,24 @@ class DailyPlanner {
 
         const dailyThoughts = document.getElementById('daily-thoughts').value;
 
+        // 收集完成情况数据（未完成原因和调整策略）
+        const completionDetails = {};
+        document.querySelectorAll('.incomplete-reason').forEach(input => {
+            const planId = input.getAttribute('data-plan-id');
+            if (input.value.trim()) {
+                if (!completionDetails[planId]) completionDetails[planId] = {};
+                completionDetails[planId].incompleteReason = input.value.trim();
+            }
+        });
+        
+        document.querySelectorAll('.adjustment-strategy').forEach(input => {
+            const planId = input.getAttribute('data-plan-id');
+            if (input.value.trim()) {
+                if (!completionDetails[planId]) completionDetails[planId] = {};
+                completionDetails[planId].adjustmentStrategy = input.value.trim();
+            }
+        });
+
         // 构建完整的日记数据，确保包含完整的日期信息
         const dateObj = new Date();
         const dailyRecord = {
@@ -451,6 +550,7 @@ class DailyPlanner {
                 gratitude: gratitude,
                 dailyThoughts: dailyThoughts
             },
+            completionDetails: completionDetails,
             statistics: {
                 totalPlans: plansData.length,
                 completedPlans: plansData.filter(p => p.completed).length,
@@ -484,6 +584,9 @@ class DailyPlanner {
         }
         
         this.showMessage(`💾 保存成功！`, 'success');
+        
+        // 保存完成情况数据到localStorage
+        this.saveCompletionData();
         
         // 更新侧边栏树状结构
         updateRecordTreeAfterSave();
@@ -635,6 +738,24 @@ class DailyPlanner {
 
         const dailyThoughts = document.getElementById('daily-thoughts').value;
 
+        // 收集完成情况数据
+        const completionDetails = {};
+        document.querySelectorAll('.incomplete-reason').forEach(input => {
+            const planId = input.getAttribute('data-plan-id');
+            if (input.value.trim()) {
+                if (!completionDetails[planId]) completionDetails[planId] = {};
+                completionDetails[planId].incompleteReason = input.value.trim();
+            }
+        });
+        
+        document.querySelectorAll('.adjustment-strategy').forEach(input => {
+            const planId = input.getAttribute('data-plan-id');
+            if (input.value.trim()) {
+                if (!completionDetails[planId]) completionDetails[planId] = {};
+                completionDetails[planId].adjustmentStrategy = input.value.trim();
+            }
+        });
+
         // 构建PDF内容
         let pdfContent = `
 <!DOCTYPE html>
@@ -690,6 +811,31 @@ class DailyPlanner {
             `).join('')}
         </tbody>
     </table>
+
+    <h2>📝 计划完成情况分析</h2>
+    ${this.plans.filter(p => !p.completed).length > 0 ? `
+    <table class="plans-table">
+        <thead>
+            <tr>
+                <th>未完成计划</th>
+                <th>未完成原因</th>
+                <th>需要调整</th>
+            </tr>
+        </thead>
+        <tbody>
+            ${this.plans.filter(p => !p.completed).map(plan => {
+                const details = completionDetails[plan.id] || {};
+                return `
+                <tr class="incomplete">
+                    <td>${plan.event}</td>
+                    <td>${details.incompleteReason || '未填写'}</td>
+                    <td>${details.adjustmentStrategy || '未填写'}</td>
+                </tr>
+                `;
+            }).join('')}
+        </tbody>
+    </table>
+    ` : '<p style="color: #28a745; font-weight: bold;">🎉 恭喜！所有计划都已完成！</p>'}
 
     <h2>🤔 感悟反思</h2>
     
@@ -1566,6 +1712,15 @@ function loadRecordFromData(date, record, source = 'local', filePath = null) {
                     thoughtsTextarea.value = record.reflection.dailyThoughts || '';
                 }
             }
+            
+            // 加载完成情况数据
+            if (record.completionDetails) {
+                // 先保存到localStorage用于后续加载
+                localStorage.setItem(`completion_data_${date}`, JSON.stringify(record.completionDetails));
+            }
+            
+            // 更新完成情况统计和表格
+            planner.updateCompletionStats();
             
             // 高亮选中的记录
             document.querySelectorAll('.tree-level-3 .tree-item').forEach(item => {
