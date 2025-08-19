@@ -2,13 +2,13 @@
 # -*- coding: utf-8 -*-
 """
 QuirkLog 每周定时任务
-设置为每周末执行OpenRouter API请求
+设置为每周一上午10点执行，总结上一周的内容
 """
 
 import schedule
 import time
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 from openai import OpenAI
 import json
 import os
@@ -66,7 +66,7 @@ class WeeklyTaskManager:
             print("⚠️ 警告: 未找到OpenRouter API密钥")
     
     def load_settings_from_xml(self):
-        """从settings.xml文件加载AI相关设置"""
+        """从settings.xml文件加载AI相关设置和保存路径"""
         try:
             xml_file = Path('settings.xml')
             if not xml_file.exists():
@@ -76,6 +76,20 @@ class WeeklyTaskManager:
             root = tree.getroot()
             
             settings = {}
+            
+            # 读取文件设置（保存路径）
+            general_section = root.find('general')
+            if general_section is not None:
+                save_dir_elem = general_section.find('saveDirectory')
+                if save_dir_elem is not None and save_dir_elem.text:
+                    settings['saveDirectory'] = save_dir_elem.text
+            
+            # 读取导出设置（文件命名）
+            export_section = root.find('export')
+            if export_section is not None:
+                file_naming_elem = export_section.find('fileNaming')
+                if file_naming_elem is not None and file_naming_elem.text:
+                    settings['fileNaming'] = file_naming_elem.text
             
             # 读取AI设置
             ai_section = root.find('ai')
@@ -99,7 +113,7 @@ class WeeklyTaskManager:
             return settings
             
         except Exception as e:
-            print(f"加载AI设置失败: {e}")
+            print(f"加载设置失败: {e}")
             return {}
     
     def make_api_request(self, prompt="生成一段关于每周总结和下周计划的建议"):
@@ -117,7 +131,7 @@ class WeeklyTaskManager:
             return None
         
         try:
-            print(f"🤖 开始执行API请求...")
+            print("🤖 开始执行API请求...")
             print(f"📝 提示词: {prompt}")
             
             completion = self.client.chat.completions.create(
@@ -136,7 +150,7 @@ class WeeklyTaskManager:
             )
             
             response_content = completion.choices[0].message.content
-            print(f"✅ API请求成功")
+            print("✅ API请求成功")
             return response_content
             
         except Exception as e:
@@ -183,63 +197,280 @@ class WeeklyTaskManager:
         except Exception as e:
             print(f"❌ 保存每周洞察失败: {e}")
     
-    def weekly_task(self):
-        """每周执行的任务"""
-        print("=" * 50)
-        print(f"🌟 执行每周定时任务 - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        print("=" * 50)
+    def get_last_week_date_range(self):
+        """获取上一周的日期范围 (周一到周日)"""
+        today = datetime.now()
+        # 计算上周一
+        last_monday = today - timedelta(days=today.weekday() + 7)
+        # 计算上周日
+        last_sunday = last_monday + timedelta(days=6)
+        return last_monday, last_sunday
+    
+    def get_possible_filenames(self, date_str, settings):
+        """根据设置生成可能的文件名格式"""
+        possible_files = []
         
-        # 生成针对每周总结的提示词
-        current_date = datetime.now()
-        week_number = current_date.isocalendar()[1]
+        # 从设置中获取文件命名格式
+        file_naming = settings.get('fileNaming', '每日记录_{date}')
         
-        prompt = f"""
-作为一个个人效率提升顾问，请为用户生成本周({current_date.strftime('%Y年第%W周')})的总结建议和下周计划指导。
+        # 根据文件命名模板生成文件名
+        if '{date}' in file_naming:
+            formatted_name = file_naming.replace('{date}', date_str)
+            possible_files.append(f"{formatted_name}.json")
+        
+        # 添加系统支持的标准格式
+        standard_formats = [
+            '每日记录_{date}',
+            'daily_record_{date}', 
+            '{date}_记录'
+        ]
+        
+        for format_template in standard_formats:
+            if format_template != file_naming:  # 避免重复
+                formatted_name = format_template.replace('{date}', date_str)
+                possible_files.append(f"{formatted_name}.json")
+        
+        # 添加兼容性格式（localStorage中使用的格式）
+        possible_files.extend([
+            f"daily-record-{date_str}.json",
+            f"{date_str}.json"
+        ])
+        
+        return possible_files
+    
+    def load_daily_data(self, date, data_directory):
+        """加载指定日期的每日数据"""
+        date_str = date.strftime('%Y-%m-%d')
+        settings = self.load_settings_from_xml()
+        
+        # 获取所有可能的文件名
+        possible_files = self.get_possible_filenames(date_str, settings)
+        
+        for filename in possible_files:
+            file_path = Path(data_directory) / filename
+            if file_path.exists():
+                try:
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        print(f"✅ 找到数据文件: {filename}")
+                        return json.load(f)
+                except Exception as e:
+                    print(f"⚠️ 读取文件 {filename} 失败: {e}")
+                    continue
+                    
+        return {}
+    
+    def collect_last_week_data(self):
+        """收集上一周的数据"""
+        # 获取设置
+        settings = self.load_settings_from_xml()
+        data_directory = settings.get('saveDirectory', './downloads')
+        
+        # 获取上一周日期范围
+        start_date, end_date = self.get_last_week_date_range()
+        
+        print(f"📊 正在收集上一周数据 ({start_date.strftime('%Y-%m-%d')} 至 "
+              f"{end_date.strftime('%Y-%m-%d')})...")
+        
+        # 加载一周数据
+        weekly_data = []
+        current_date = start_date
+        weekdays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
+        
+        while current_date <= end_date:
+            daily_data = self.load_daily_data(current_date, data_directory)
+            daily_data['date'] = current_date.strftime('%Y-%m-%d')
+            daily_data['weekday_cn'] = weekdays[current_date.weekday()]
+            weekly_data.append(daily_data)
+            current_date += timedelta(days=1)
+        
+        # 统计有效数据天数
+        valid_days = len([d for d in weekly_data if d.get('plans')])
+        print(f"✅ 找到 {valid_days} 天的有效数据")
+        
+        return self.format_data_for_ai(weekly_data, start_date, end_date)
+    
+    def format_data_for_ai(self, weekly_data, start_date, end_date):
+        """将一周数据格式化为适合AI分析的文本"""
+        
+        formatted_text = f"""# 每周数据汇总 ({start_date.strftime('%Y-%m-%d')} 至 {end_date.strftime('%Y-%m-%d')})
 
-请包含以下几个方面：
-1. 每周回顾的重要性
-2. 3-5个自我反思问题
-3. 下周目标设定的建议
-4. 时间管理技巧
-5. 保持动力的方法
+## 本周每日详细数据
 
-请用中文回答，语言要温暖、鼓励性，适合个人成长和自我提升场景。
-        """.strip()
+"""
         
-        # 执行API请求
-        response = self.make_api_request(prompt)
-        
-        if response:
-            print("🎯 AI生成的每周洞察:")
-            print("-" * 30)
-            print(response)
-            print("-" * 30)
+        for i, daily_data in enumerate(weekly_data):
+            date = daily_data.get('date', '未知日期')
+            weekday = daily_data.get('weekday_cn', '未知')
             
-            # 保存洞察
-            self.save_weekly_insights(response)
-        else:
-            print("❌ 未能获取每周洞察")
+            formatted_text += f"### {weekday} {date}\n\n"
+            
+            # 计划数据
+            plans = daily_data.get('plans', [])
+            if plans:
+                formatted_text += "#### 📋 今日计划\n"
+                for j, plan in enumerate(plans, 1):
+                    status = "✅已完成" if plan.get('completed', False) else "❌未完成"
+                    importance = plan.get('importance', '未设置')
+                    urgency = plan.get('urgency', '未设置')
+                    start_time = plan.get('startTime', plan.get('start_time', '未设置'))
+                    duration = plan.get('duration', '未设置')
+                    
+                    formatted_text += f"{j}. **{plan.get('event', '未知事件')}** {status}\n"
+                    formatted_text += f"   - 重要等级: {importance}\n"
+                    formatted_text += f"   - 紧急程度: {urgency}\n"
+                    formatted_text += f"   - 开始时间: {start_time}\n"
+                    formatted_text += f"   - 计划时长: {duration}\n\n"
+                
+                # 统计信息
+                total_plans = len(plans)
+                completed_plans = sum(1 for plan in plans if plan.get('completed', False))
+                completion_rate = (completed_plans / total_plans * 100) if total_plans > 0 else 0
+                
+                formatted_text += f"**当日统计**: {completed_plans}/{total_plans} 项完成，完成率 {completion_rate:.1f}%\n\n"
+            else:
+                formatted_text += "#### 📋 今日计划\n当日无计划记录\n\n"
+            
+            # 反思数据
+            reflection = daily_data.get('reflection', {})
+            
+            # 进步之处
+            progress_items = reflection.get('progress', [])
+            if progress_items:
+                formatted_text += "#### 👍 今日进步\n"
+                for item in progress_items:
+                    if item.strip():
+                        formatted_text += f"- {item.strip()}\n"
+                formatted_text += "\n"
+            
+            # 改进建议
+            improvement_items = reflection.get('improvements', [])
+            if improvement_items:
+                formatted_text += "#### 😊 改进之处\n"
+                for item in improvement_items:
+                    if item.strip():
+                        formatted_text += f"- {item.strip()}\n"
+                formatted_text += "\n"
+            
+            # 感恩时刻
+            gratitude_items = reflection.get('gratitude', [])
+            if gratitude_items:
+                formatted_text += "#### ❤️ 感恩时刻\n"
+                for item in gratitude_items:
+                    if item.strip():
+                        formatted_text += f"- {item.strip()}\n"
+                formatted_text += "\n"
+            
+            # 每日思考
+            daily_thoughts = reflection.get('dailyThoughts', '').strip()
+            if daily_thoughts:
+                formatted_text += "#### 💭 每日思考\n"
+                formatted_text += f"{daily_thoughts}\n\n"
+            
+            formatted_text += "---\n\n"
         
-        print("✅ 每周定时任务执行完成")
+        # 周汇总统计
+        total_plans = sum(len(daily.get('plans', [])) for daily in weekly_data)
+        total_completed = sum(sum(1 for plan in daily.get('plans', []) 
+                                if plan.get('completed', False)) 
+                            for daily in weekly_data)
+        overall_completion = (total_completed / total_plans * 100) if total_plans > 0 else 0
+        
+        formatted_text += f"""## 📊 本周整体统计
+
+- **总计划数**: {total_plans} 项
+- **已完成**: {total_completed} 项  
+- **整体完成率**: {overall_completion:.1f}%
+- **有数据天数**: {len([d for d in weekly_data if d.get('plans')])} 天
+
+---
+
+"""
+        return formatted_text
+    
+    def load_template(self):
+        """加载周总结模板"""
+        try:
+            template_path = Path("weekly_summary_template.md")
+            if template_path.exists():
+                with open(template_path, 'r', encoding='utf-8') as f:
+                    return f.read()
+            else:
+                print("⚠️ 未找到 weekly_summary_template.md 文件，使用默认模板")
+                return self.get_default_template()
+        except Exception as e:
+            print(f"❌ 加载模板失败: {e}")
+            return self.get_default_template()
+    
+    def get_default_template(self):
+        """获取默认模板"""
+        return """
+你是一位专业的个人效率教练和生活导师，擅长分析个人成长数据，提供深度洞察和实用建议。
+
+## 任务说明
+基于用户提供的一周每日计划和反思数据，生成一份深度、温暖、实用的每周总结报告。
+
+请分析以下数据并生成个性化的周总结报告：
+- 统计分析完成情况和趋势
+- 识别成长轨迹和问题模式  
+- 提供温暖鼓励的改进建议
+- 给出下周的具体优化建议
+
+请用温暖鼓励的语调，提供有深度的洞察和实用的建议。
+"""
+    
+    def weekly_task(self):
+        """每周执行的任务 - 总结上一周的内容"""
+        print("=" * 50)
+        print(f"🌟 执行每周总结任务 - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        print("=" * 50)
+        
+        try:
+            # 1. 收集上一周的数据
+            weekly_data = self.collect_last_week_data()
+            
+            if not weekly_data.strip():
+                print("❌ 未找到上一周的有效数据，跳过总结")
+                return
+            
+            # 2. 加载模板
+            template = self.load_template()
+            
+            # 3. 构建完整的提示词
+            prompt = template + "\n\n" + weekly_data + "\n\n请基于以上数据和要求，生成个性化的每周总结报告。"
+            
+            # 4. 执行API请求
+            response = self.make_api_request(prompt)
+            
+            if response:
+                print("🎯 AI生成的每周总结:")
+                print("-" * 30)
+                print(response)
+                print("-" * 30)
+                
+                # 5. 保存总结报告
+                self.save_weekly_insights(response)
+            else:
+                print("❌ 未能获取每周总结")
+                
+        except Exception as e:
+            print(f"❌ 执行每周任务失败: {e}")
+        
+        print("✅ 每周总结任务执行完成")
     
     def setup_schedule(self):
         """设置定时任务计划"""
         # 清除现有计划
         schedule.clear()
         
-        # 设置每周六上午9点执行
-        schedule.every().saturday.at("09:00").do(self.weekly_task)
-        
-        # 设置每周日晚上7点执行（额外的周末任务）
-        schedule.every().sunday.at("19:00").do(self.weekly_task)
+        # 设置每周一上午10点执行（总结上一周）
+        schedule.every().monday.at("10:00").do(self.weekly_task)
         
         print("⏰ 定时任务已设置:")
-        print("   - 每周六 09:00")
-        print("   - 每周日 19:00")
-    
+        print("   - 每周一 10:00 (总结上一周)")
+        
     def run_scheduler(self):
         """运行定时任务调度器"""
-        print("🚀 定时任务调度器已启动...")
+        print("🚀 每周总结定时任务调度器已启动...")
         self.running = True
         
         while self.running:
@@ -256,7 +487,8 @@ class WeeklyTaskManager:
         self.setup_schedule()
         
         # 在后台线程中运行调度器
-        self.task_thread = threading.Thread(target=self.run_scheduler, daemon=True)
+        self.task_thread = threading.Thread(
+            target=self.run_scheduler, daemon=True)
         self.task_thread.start()
         
         print("✅ 定时任务已启动")
