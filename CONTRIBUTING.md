@@ -29,14 +29,8 @@ pip install -r requirements.txt
 
 ### 运行项目
 ```bash
-# GUI版本
-python daily_planner.py
-
-# CLI版本  
-python daily_planner_cli.py
-
 # Web版本
-python web_server.py
+python launcher.py
 ```
 
 ## 代码规范
