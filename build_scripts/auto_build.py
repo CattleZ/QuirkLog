@@ -39,7 +39,7 @@ def install_build_dependencies():
         return False
 
 def create_simple_spec_file():
-    """创建简化的 PyInstaller 规格文件"""
+    """创建简化的 PyInstaller 规格文件（Web版本专用）"""
     
     spec_content = f"""# -*- mode: python ; coding: utf-8 -*-
 
@@ -53,16 +53,20 @@ a = Analysis(
         ('script.js', '.'),
         ('settings.xml', '.'),
         ('README.md', '.'),
+        ('weekly_summary_template.md', '.'),
+        ('requirements.txt', '.'),
     ],
     hiddenimports=[
         'webbrowser', 'http.server', 'socketserver', 'threading',
         'json', 'xml.etree.ElementTree', 'datetime', 'pathlib',
-        'tkinter', 'tkinter.ttk', 'tkinter.messagebox', 'tkinter.filedialog',
+        'schedule', 'openai', 'urllib.parse',
     ],
     hookspath=[],
     hooksconfig={{}},
     runtime_hooks=[],
-    excludes=[],
+    excludes=[
+        'tkinter', 'tkinter.ttk', 'tkinter.messagebox', 'tkinter.filedialog'
+    ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=None,
