@@ -1169,11 +1169,153 @@ document.head.appendChild(style);
 // 初始化应用
 let planner;
 document.addEventListener('DOMContentLoaded', () => {
+    // 清理缓存
+    clearPageCache();
+    
     // 更新标题为当前日期
     updateTitle();
     
     planner = new DailyPlanner();
 });
+
+// 清理页面缓存
+function clearPageCache(forceCleanToday = false) {
+    const today = new Date().toISOString().split('T')[0];
+    const lastClearDate = localStorage.getItem('lastCacheClearDate');
+    
+    // 如果是新的一天或者从未清理过，或者强制清理，则进行缓存清理
+    if (!lastClearDate || lastClearDate !== today || forceCleanToday) {
+        console.log('🧹 正在清理页面缓存...');
+        
+        // 清理可能过时的临时数据
+        const keysToCheck = [];
+        for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (key) {
+                keysToCheck.push(key);
+            }
+        }
+        
+        let cleanedCount = 0;
+        keysToCheck.forEach(key => {
+            // 清理过期的每日数据（保留最近7天）
+            if (key.includes('reflection_') || key.includes('daily-thoughts-') || key.includes('completion_data_')) {
+                const dateMatch = key.match(/(\d{4}-\d{2}-\d{2})/);
+                if (dateMatch) {
+                    const keyDate = new Date(dateMatch[1]);
+                    const daysDiff = (new Date(today) - keyDate) / (1000 * 60 * 60 * 24);
+                    
+                    // 删除7天前的临时数据
+                    if (daysDiff > 7) {
+                        localStorage.removeItem(key);
+                        cleanedCount++;
+                    }
+                }
+            }
+            
+            // 清理每日记录数据（保留最近7天）
+            if (key.startsWith('daily-record-')) {
+                const dateMatch = key.match(/daily-record-(\d{4}-\d{2}-\d{2})/);
+                if (dateMatch) {
+                    const keyDate = new Date(dateMatch[1]);
+                    const daysDiff = (new Date(today) - keyDate) / (1000 * 60 * 60 * 24);
+                    
+                    // 删除7天前的每日记录
+                    if (daysDiff > 7) {
+                        localStorage.removeItem(key);
+                        cleanedCount++;
+                    }
+                }
+            }
+            
+            // 清理可能损坏的数据
+            if (key.startsWith('temp_') || key.startsWith('cache_')) {
+                localStorage.removeItem(key);
+                cleanedCount++;
+            }
+        });
+        
+        // 检查今日数据是否过期（如果不是今天的数据，清理计划数据）
+        const dailyPlannerData = localStorage.getItem('dailyPlannerData');
+        if (dailyPlannerData) {
+            try {
+                const parsed = JSON.parse(dailyPlannerData);
+                if (parsed.savedAt) {
+                    const savedDate = new Date(parsed.savedAt).toISOString().split('T')[0];
+                    if (savedDate !== today) {
+                        console.log(`🗑️ 清理非今日的计划数据 (${savedDate})`);
+                        localStorage.removeItem('dailyPlannerData');
+                        localStorage.removeItem('plans');
+                        cleanedCount += 2;
+                    } else if (forceCleanToday) {
+                        console.log('🗑️ 强制清理今日的计划数据');
+                        localStorage.removeItem('dailyPlannerData');
+                        localStorage.removeItem('plans');
+                        cleanedCount += 2;
+                    }
+                }
+            } catch (e) {
+                console.log('🗑️ 清理损坏的计划数据');
+                localStorage.removeItem('dailyPlannerData');
+                localStorage.removeItem('plans');
+                cleanedCount += 2;
+            }
+        }
+        
+        // 如果强制清理，也清理今日的其他数据
+        if (forceCleanToday) {
+            localStorage.removeItem(`daily-record-${today}`);
+            localStorage.removeItem(`reflection_${today}`);
+            localStorage.removeItem(`daily-thoughts-${today}`);
+            localStorage.removeItem(`completion_data_${today}`);
+            cleanedCount += 4;
+        }
+        
+        // 清理浏览器缓存（如果可能）
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.getRegistrations().then(registrations => {
+                registrations.forEach(registration => {
+                    registration.update();
+                });
+            });
+        }
+        
+        // 记录清理日期
+        localStorage.setItem('lastCacheClearDate', today);
+        
+        if (cleanedCount > 0) {
+            console.log(`✅ 已清理 ${cleanedCount} 项过期缓存数据`);
+        }
+        
+        console.log('🎉 缓存清理完成');
+    }
+    
+    // 强制刷新页面数据（清理内存中的旧数据）
+    if (window.planner) {
+        window.planner = null;
+    }
+}
+
+// 检测页面刷新/重新加载
+function detectPageRefresh() {
+    // 检测是否为刷新操作
+    if (performance.navigation && performance.navigation.type === 1) {
+        console.log('🔄 检测到页面刷新，清理缓存');
+        clearPageCache();
+    }
+    
+    // 现代浏览器的检测方式
+    if (performance.getEntriesByType && performance.getEntriesByType('navigation').length > 0) {
+        const navEntry = performance.getEntriesByType('navigation')[0];
+        if (navEntry.type === 'reload') {
+            console.log('🔄 检测到页面重载，清理缓存');
+            clearPageCache();
+        }
+    }
+}
+
+// 在页面加载前检测刷新
+detectPageRefresh();
 
 // 更新标题为当前日期
 function updateTitle() {
@@ -2278,4 +2420,117 @@ function showSettingsMessage(message, type = 'info') {
 function getFormattedFileName(date) {
     const template = currentSettings.fileNaming || '每日记录_{date}';
     return template.replace('{date}', date);
+}
+
+// 页面卸载时的清理
+window.addEventListener('beforeunload', () => {
+    // 清理内存中的数据
+    if (window.planner) {
+        window.planner = null;
+    }
+});
+
+// 页面隐藏时清理
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+        // 页面被隐藏时清理临时数据
+        console.log('📄 页面被隐藏，清理临时数据');
+    } else {
+        // 页面重新可见时检查缓存
+        console.log('👀 页面重新可见，检查缓存状态');
+        const today = new Date().toISOString().split('T')[0];
+        const lastClearDate = localStorage.getItem('lastCacheClearDate');
+        
+        if (!lastClearDate || lastClearDate !== today) {
+            clearPageCache();
+            // 重新初始化数据
+            if (window.planner) {
+                window.planner.updateCompletionStats();
+            }
+        }
+    }
+});
+
+// 强制禁用某些浏览器缓存
+if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.addEventListener('message', event => {
+        if (event.data && event.data.type === 'CACHE_UPDATED') {
+            console.log('🔄 Service Worker 缓存已更新');
+            // 可以在这里添加页面刷新逻辑
+            // location.reload();
+        }
+    });
+}
+
+// 添加键盘快捷键强制刷新缓存
+document.addEventListener('keydown', (e) => {
+    // Ctrl+Shift+R 或 Cmd+Shift+R 强制清理缓存并刷新
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'R') {
+        e.preventDefault();
+        console.log('⚡ 强制清理缓存并刷新');
+        
+        // 询问用户是否要清理今日数据
+        const clearToday = confirm('是否要清理今日的所有数据？\n\n点击"确定"将清理所有数据（包括今日计划）\n点击"取消"将保留今日数据，只清理过期数据');
+        
+        if (clearToday) {
+            // 清理所有localStorage数据（除了重要设置）
+            const keysToKeep = ['settings', 'user-preferences'];
+            const allKeys = Object.keys(localStorage);
+            
+            allKeys.forEach(key => {
+                if (!keysToKeep.some(keepKey => key.includes(keepKey))) {
+                    localStorage.removeItem(key);
+                }
+            });
+        } else {
+            // 只清理过期数据，保留今日数据
+            clearPageCache(false);
+        }
+        
+        // 强制刷新页面
+        location.reload(true);
+    }
+});
+
+// 添加开发者调试功能
+if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+    console.log('🛠️ 开发模式：添加调试功能');
+    
+    // 添加全局清理函数供调试使用
+    window.forceClearCache = () => {
+        clearPageCache(false);
+        console.log('🧹 手动清理缓存完成（保留今日数据）');
+    };
+    
+    window.forceClearAll = () => {
+        clearPageCache(true);
+        console.log('🧹 手动清理所有缓存完成（包括今日数据）');
+    };
+    
+    // 添加全局数据检查函数
+    window.checkLocalStorage = () => {
+        console.log('📊 当前 localStorage 数据：');
+        for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            const value = localStorage.getItem(key);
+            console.log(`${key}:`, value.length > 100 ? `${value.substring(0, 100)}...` : value);
+        }
+    };
+    
+    // 检查特定的数据项
+    window.checkPlanData = () => {
+        console.log('📋 计划数据检查：');
+        console.log('dailyPlannerData:', localStorage.getItem('dailyPlannerData'));
+        console.log('plans:', localStorage.getItem('plans'));
+        
+        const today = new Date().toISOString().split('T')[0];
+        console.log(`daily-record-${today}:`, localStorage.getItem(`daily-record-${today}`));
+    };
+    
+    console.log('💡 调试提示：');
+    console.log('- 使用 forceClearCache() 清理缓存（保留今日数据）');
+    console.log('- 使用 forceClearAll() 清理所有缓存（包括今日数据）');
+    console.log('- 使用 checkLocalStorage() 查看当前存储数据');
+    console.log('- 使用 checkPlanData() 查看计划相关数据');
+    console.log('- 使用 Ctrl+Shift+R 强制清理缓存并刷新（会询问是否清理今日数据）');
 }
